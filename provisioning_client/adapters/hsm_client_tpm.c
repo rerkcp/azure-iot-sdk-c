@@ -13,6 +13,9 @@
 #include "azure_c_shared_utility/strings.h"
 #include "azure_c_shared_utility/xlogging.h"
 #include "azure_c_shared_utility/crt_abstractions.h"
+#if !defined(TPM_NO_LOCKING)
+#include "azure_c_shared_utility/lock.h"
+#endif
 
 #include "hsm_client_tpm.h"
 #include "hsm_client_data.h"
@@ -43,6 +46,7 @@ typedef struct HSM_CLIENT_INFO_TAG
     TPM2B_PRIVATE id_key_priv;
 } HSM_CLIENT_INFO;
 
+#if defined(TPM_NO_LOCKING)
 static const HSM_CLIENT_TPM_INTERFACE tpm_interface =
 {
     hsm_client_tpm_create,
@@ -52,6 +56,63 @@ static const HSM_CLIENT_TPM_INTERFACE tpm_interface =
     hsm_client_tpm_get_storage_key,
     hsm_client_tpm_sign_data
 };
+#else
+LOCK_HANDLE tpm_lock = NULL;
+
+HSM_CLIENT_HANDLE hsm_client_tpm_create_locked()
+{
+    if( tpm_lock == NULL )
+        tpm_lock = Lock_Init();
+    Lock(tpm_lock);
+    HSM_CLIENT_HANDLE retVal = hsm_client_tpm_create();
+    Unlock(tpm_lock);
+    return retVal;
+}
+void hsm_client_tpm_destroy_locked(HSM_CLIENT_HANDLE handle)
+{
+    Lock(tpm_lock);
+    hsm_client_tpm_destroy(handle);
+    Unlock(tpm_lock);
+}
+int hsm_client_tpm_import_key_locked(HSM_CLIENT_HANDLE handle, const unsigned char* key, size_t key_len)
+{
+    Lock(tpm_lock);
+    int retVal = hsm_client_tpm_import_key(handle, key, key_len);
+    Unlock(tpm_lock);
+    return retVal;
+}
+int hsm_client_tpm_get_endorsement_key_locked(HSM_CLIENT_HANDLE handle, unsigned char** key, size_t* key_len)
+{
+    Lock(tpm_lock);
+    int retVal = hsm_client_tpm_get_endorsement_key(handle, key, key_len);
+    Unlock(tpm_lock);
+    return retVal;
+}
+int hsm_client_tpm_get_storage_key_locked(HSM_CLIENT_HANDLE handle, unsigned char** key, size_t* key_len)
+{
+    Lock(tpm_lock);
+    int retVal = hsm_client_tpm_get_storage_key(handle, key, key_len);
+    Unlock(tpm_lock);
+    return retVal;
+}
+int hsm_client_tpm_sign_data_locked(HSM_CLIENT_HANDLE handle, const unsigned char* data, size_t data_len, unsigned char** signed_value, size_t* signed_len)
+{
+    Lock(tpm_lock);
+    int retVal = hsm_client_tpm_sign_data(handle, data, data_len, signed_value, signed_len);
+    Unlock(tpm_lock);
+    return retVal;
+}
+
+static const HSM_CLIENT_TPM_INTERFACE tpm_interface =
+{
+    hsm_client_tpm_create_locked,
+    hsm_client_tpm_destroy_locked,
+    hsm_client_tpm_import_key_locked,
+    hsm_client_tpm_get_endorsement_key_locked,
+    hsm_client_tpm_get_storage_key_locked,
+    hsm_client_tpm_sign_data_locked
+};
+#endif
 
 static TPMS_RSA_PARMS  RsaStorageParams = {
     { TPM_ALG_AES, 128, TPM_ALG_CFB },      // TPMT_SYM_DEF_OBJECT  symmetric
