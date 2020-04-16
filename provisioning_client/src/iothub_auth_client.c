@@ -12,6 +12,7 @@
 #include "azure_c_shared_utility/xlogging.h"
 #include "azure_c_shared_utility/crt_abstractions.h"
 #include "azure_c_shared_utility/hmacsha256.h"
+#include "azure_c_shared_utility/lock.h"
 
 #include "azure_prov_client/internal/iothub_auth_client.h"
 #include "azure_prov_client/iothub_security_factory.h"
@@ -21,6 +22,7 @@ typedef struct IOTHUB_SECURITY_INFO_TAG
 {
     DEVICE_AUTH_TYPE cred_type;
 
+    LOCK_HANDLE hsm_lock;
     HSM_CLIENT_HANDLE hsm_client_handle;
 
     HSM_CLIENT_CREATE hsm_client_create;
@@ -52,6 +54,10 @@ static int sign_sas_data(IOTHUB_SECURITY_INFO* security_info, const char* payloa
     size_t payload_len = strlen(payload);
     if (security_info->cred_type == AUTH_TYPE_SAS)
     {
+        LogInfo("Acquiring hsm lock.");
+        Lock(security_info->hsm_lock);
+        LogInfo("Acquired hsm lock.");
+        
         if (security_info->hsm_client_sign_data(security_info->hsm_client_handle, (const unsigned char*)payload, strlen(payload), output, len) != 0)
         {
             LogError("Failed signing data");
@@ -61,6 +67,7 @@ static int sign_sas_data(IOTHUB_SECURITY_INFO* security_info, const char* payloa
         {
             result = 0;
         }
+        Unlock(security_info->hsm_lock);
     }
     else
     {
@@ -131,6 +138,13 @@ IOTHUB_SECURITY_HANDLE iothub_device_auth_create()
     else
     {
         memset(result, 0, sizeof(IOTHUB_SECURITY_INFO) );
+        result->hsm_lock = Lock_Init();
+        if(result->hsm_lock == NULL)
+        {
+            LogError("Error creating lock object for hsm.");
+            free(result);
+            result = NULL;
+        }
 #if defined(HSM_TYPE_SAS_TOKEN)  || defined(HSM_AUTH_TYPE_CUSTOM)
         if (iothub_security_t == IOTHUB_SECURITY_TYPE_SAS)
         {
@@ -146,6 +160,7 @@ IOTHUB_SECURITY_HANDLE iothub_device_auth_create()
             {
                 /* Codes_IOTHUB_DEV_AUTH_07_034: [ if any of the iothub_security_interface function are NULL iothub_device_auth_create shall return NULL. ] */
                 LogError("Invalid secure device interface");
+                (void)Lock_Deinit(result->hsm_lock);
                 free(result);
                 result = NULL;
             }
@@ -167,6 +182,7 @@ IOTHUB_SECURITY_HANDLE iothub_device_auth_create()
             {
                 /* Codes_IOTHUB_DEV_AUTH_07_034: [ if any of the iothub_security_interface function are NULL iothub_device_auth_create shall return NULL. ] */
                 LogError("Invalid handle parameter: DEVICE_AUTH_CREATION_INFO is NULL");
+                (void)Lock_Deinit(result->hsm_lock);
                 free(result);
                 result = NULL;
             }
@@ -187,6 +203,7 @@ IOTHUB_SECURITY_HANDLE iothub_device_auth_create()
                 )
             {
                 LogError("Invalid x509 secure device interface was specified");
+                (void)Lock_Deinit(result->hsm_lock);
                 free(result);
                 result = NULL;
             }
@@ -207,6 +224,7 @@ IOTHUB_SECURITY_HANDLE iothub_device_auth_create()
                 ((result->hsm_client_get_trust_bundle = http_edge_interface->hsm_client_get_trust_bundle) == NULL))
             {
                 LogError("Invalid secure device interface");
+                (void)Lock_Deinit(result->hsm_lock);
                 free(result);
                 result = NULL;
             }
@@ -219,6 +237,7 @@ IOTHUB_SECURITY_HANDLE iothub_device_auth_create()
         else if (result->hsm_client_create == NULL)
         {
             LogError("hsm_client_create is not a valid address");
+            (void)Lock_Deinit(result->hsm_lock);
             free(result);
             result = NULL;
         }
@@ -230,6 +249,7 @@ IOTHUB_SECURITY_HANDLE iothub_device_auth_create()
             {
                 /* Codes_IOTHUB_DEV_AUTH_07_002: [ iothub_device_auth_create shall allocate the IOTHUB_SECURITY_INFO and shall fail if the allocation fails. ]*/
                 LogError("failed create device auth module.");
+                (void)Lock_Deinit(result->hsm_lock);
                 free(result);
                 result = NULL;
             }
@@ -237,6 +257,7 @@ IOTHUB_SECURITY_HANDLE iothub_device_auth_create()
             {
                 LogError("Invalid x509 secure device interface was specified");
                 result->hsm_client_destroy(result->hsm_client_handle);
+                (void)Lock_Deinit(result->hsm_lock);
                 free(result);
                 result = NULL;
             }
