@@ -64,11 +64,9 @@ HSM_CLIENT_HANDLE hsm_client_tpm_create_locked()
     if( tpm_lock == NULL )
     {
         tpm_lock = Lock_Init();
-	fprintf(stderr, "TPM: created lock\n");
     }
     Lock(tpm_lock);
     HSM_CLIENT_HANDLE retVal = hsm_client_tpm_create();
-    fprintf(stderr, "TPM: client_tpm_create %lx\n", (size_t)retVal);
     Unlock(tpm_lock);
     return retVal;
 }
@@ -103,7 +101,6 @@ int hsm_client_tpm_sign_data_locked(HSM_CLIENT_HANDLE handle, const unsigned cha
 {
     Lock(tpm_lock);
     int retVal = hsm_client_tpm_sign_data(handle, data, data_len, signed_value, signed_len);
-    fprintf(stderr, "TPM: client_tpm_sign %lx %lx %lx %lx - %lx %lx %lx %lx %x\n", ((size_t*)data)[0], ((size_t*)data)[1], ((size_t*)data)[2], ((size_t*)data)[3], ((size_t*)*signed_value)[0], ((size_t*)*signed_value)[1], ((size_t*)*signed_value)[2], ((size_t*)*signed_value)[3],  retVal);
     Unlock(tpm_lock);
     return retVal;
 }
